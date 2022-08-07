@@ -25,6 +25,15 @@ pub enum ToC{
     TocNewObjList = 1<<2,
 }
 
+// let toc_hash = HashMap::from([
+//     ("TocMetaData", 1 << 1),
+//     ("TocRawData", 1 << 3),
+//     ("TocDAQmxRawData", 1 << 7),
+//     ("TocInterleavedData", 1 << 5),
+//     ("TocBigEndian", 1 << 6),
+//     ("TocNewObjList", 1 << 2),
+// ]);
+
 // let m = LittleEndian::read_i32(&mask);
 // for (k, v) in toc_hash{
 //     println!("{k} ({v:08b} & {:08b} != 0) = {}", &m, (&m & v != 0))

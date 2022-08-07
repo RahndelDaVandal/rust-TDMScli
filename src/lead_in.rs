@@ -1,10 +1,10 @@
 #[derive(Debug)]
 pub struct LeadIn {
-    tag: String,
-    toc: i32,
-    ver: u32,
-    seg: u64,
-    raw: u64,
+    pub tag: String,
+    pub toc: i32,
+    pub ver: u32,
+    pub seg: u64,
+    pub raw: u64,
 }
 
 impl LeadIn {
