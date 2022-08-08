@@ -1,37 +1,39 @@
+use byteorder::{ByteOrder, LittleEndian};
+
 #[derive(Debug)]
 pub enum Dtype {
-    Int8,
-    Int16,
-    Int32,
-    Int64,
-    Uint8,
-    Uint16,
-    Uint32,
-    Uint64,
-    Float,
-    Double,
-    String,
-    Boolean,
-    TimeStamp,
+    Int8(i8),
+    Int16(i16),
+    Int32(i32),
+    Int64(i64),
+    Uint8(u8),
+    Uint16(u16),
+    Uint32(u32),
+    Uint64(u64),
+    Float(f32),
+    Double(f64),
+    String(String),
+    Boolean, // TODO - Figure out how Ni stores bools as &[u8]
+    TimeStamp, // TODO - Figure out how to make timestamp
     DtypeError,
 }
 
-pub fn get_dtype(value: u32) -> Dtype{
-    match value{
-        0x01 => Dtype::Int8,
-        0x02 => Dtype::Int16,
-        0x03 => Dtype::Int32,
-        0x04 => Dtype::Int64,
-        0x05 => Dtype::Uint8,
-        0x06 => Dtype::Uint16,
-        0x07 => Dtype::Uint32,
-        0x08 => Dtype::Uint64,
-        0x09 => Dtype::Float,
-        0x0A => Dtype::Double,
-        0x20 => Dtype::String,
+pub fn get_dtype(dtype: u32, value: &[u8]) -> Dtype{
+    match dtype{
+        0x01 => Dtype::Int8(LittleEndian::read_i16(value) as i8),
+        0x02 => Dtype::Int16(LittleEndian::read_i16(value)),
+        0x03 => Dtype::Int32(LittleEndian::read_i32(value)),
+        0x04 => Dtype::Int64(LittleEndian::read_i64(value)),
+        0x05 => Dtype::Uint8(LittleEndian::read_u16(value) as u8),
+        0x06 => Dtype::Uint16(LittleEndian::read_u16(value)),
+        0x07 => Dtype::Uint32(LittleEndian::read_u32(value)),
+        0x08 => Dtype::Uint64(LittleEndian::read_u64(value)),
+        0x09 => Dtype::Float(LittleEndian::read_f32(value)),
+        0x0A => Dtype::Double(LittleEndian::read_f64(value)),
+        0x20 => Dtype::String(String::from_utf8_lossy(value).to_string()),
         0x21 => Dtype::Boolean,
         0x44 => Dtype::TimeStamp,
-        _ => Dtype::DtypeError,
+        _ => {Dtype::DtypeError}
     }
 }
 
