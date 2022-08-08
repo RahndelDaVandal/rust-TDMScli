@@ -6,7 +6,7 @@ use std::env;
 use std::path::PathBuf;
 use utils::{default_path, print_type_of, type_of};
 use dtype::{Dtype, get_dtype};
-use meta_data::{MetaData, Object, Property};
+use meta_data::{MetaData, Object, Property, Value};
 
 mod dtype;
 mod lead_in;
@@ -36,17 +36,26 @@ fn main() {
     let mut obj = Object::new();
     let mut prop = Property::new();
 
-    let mut buf = r.read_next(4);
-    meta.num_of_obj = LittleEndian::read_u32(&buf);
+    meta.set_num_of_objs(&r.read_next(4));
 
-    buf = r.read_next(4);
-    obj.len_of_path = LittleEndian::read_u32(&buf);
-
-    buf = r.read_next(obj.len_of_path as usize);
-    obj.path = String::from_utf8(buf).unwrap();
-
+    obj.set_len_of_path(&r.read_next(4));
+    obj.set_path(&r.read_next(*obj.len_of_path()));
+    obj.set_raw_index(&r.read_next(4));
+    obj.set_num_of_properties(&r.read_next(4));
     
-    meta.objects.push(obj);
+    // len of Name
+    prop.set_len_of_name(&r.read_next(4));
+    // Name
+    prop.set_name(&r.read_next(*prop.len_of_name()));
+    // dtype
+    prop.set_dtype(&r.read_next(4));
+    // len of Value if string
+    prop.set_len_value(&r.read_next(4));
+    // value
+    prop.set_value(&r.read_next(*prop.len_of_name()));
+
+    obj.add_property(prop);
+    meta.add_object(obj);
     dbg!(&meta);
     // dbg!(&obj);
 

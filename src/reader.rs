@@ -19,8 +19,8 @@ impl Reader {
             location: 0,
         }
     }
-    pub fn read_next(&mut self, num: usize) -> Vec<u8> {
-        let mut buf = vec![0u8; num];
+    pub fn read_next(&mut self, num: u32) -> Vec<u8> {
+        let mut buf = vec![0u8; num as usize];
 
         match self.reader.read(&mut buf) {
             Ok(_) => {}
