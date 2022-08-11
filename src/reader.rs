@@ -7,7 +7,7 @@ use crate::lead_in::LeadIn;
 
 #[derive(Debug)]
 pub struct Reader {
-    reader: BufReader<File>,
+    pub reader: BufReader<File>,
     pub location: i32,
 }
 
