@@ -18,7 +18,13 @@ pub enum Dtype {
     DtypeError,
 }
 
-pub fn get_dtype(dtype: u32, value: &[u8]) -> Dtype{
+// Timestamps in TDMS files are stored as a structure of two components:
+//     - (i64) seconds: since the epoch 01/01/1904 00:00:00.00 UTC (using the Gregorian calendar 
+//         and ignoring leap seconds)
+//     - (u64) positive fractions: (2^-64) of a second
+// Boolean values are stored as 1 byte each, where 1 represents TRUE and 0 represents FALSE.
+
+pub fn get_val_by_dtype(dtype: u32, value: &[u8]) -> Dtype{
     match dtype{
         0x01 => Dtype::Int8(LittleEndian::read_i16(value) as i8),
         0x02 => Dtype::Int16(LittleEndian::read_i16(value)),
@@ -37,6 +43,24 @@ pub fn get_dtype(dtype: u32, value: &[u8]) -> Dtype{
     }
 }
 
+pub fn get_dtype_as_string(dtype: u32) -> String{
+    match dtype{
+        0x01 => "Int8".to_string(),
+        0x02 => "Int16".to_string(),
+        0x03 => "Int32".to_string(),
+        0x04 => "Int64".to_string(),
+        0x05 => "Uint8".to_string(),
+        0x06 => "Uint16".to_string(),
+        0x07 => "Uint32".to_string(),
+        0x08 => "Uint64".to_string(),
+        0x09 => "Float".to_string(),
+        0x0A => "Doubl".to_string(),
+        0x20 => "String".to_string(),
+        0x21 => "Boolean".to_string(),
+        0x44 => "TimeStamp".to_string(),
+        _ => "DtypeError".to_string()
+    }
+}
 // int8 = 0x01,
 // int16 = 0x02,
 // int32 = 0x03,

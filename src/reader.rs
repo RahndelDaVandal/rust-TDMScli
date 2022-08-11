@@ -25,11 +25,17 @@ impl Reader {
 
         match self.reader.read(&mut buf) {
             Ok(_) => {}
-            Err(e) => eprintln!("Error: {}", e),
+            Err(e) => eprintln!("Error: {e}"),
         };
         self.location += num as i32;
 
         buf
+    }
+    pub fn move_to(&mut self, idx: u64){
+        match self.reader.seek_relative(idx as i64){
+            Ok(_) => self.location += idx as i32,
+            Err(e) => eprintln!("Error: {e}")
+        }
     }
     pub fn read_lead_in(&mut self) -> LeadIn {
         let mut buf = self.read_next(4);

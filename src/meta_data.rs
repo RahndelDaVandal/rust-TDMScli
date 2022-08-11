@@ -1,4 +1,4 @@
-use crate::dtype::{Dtype, get_dtype};
+use crate::dtype::Dtype;
 use std::any::Any;
 use byteorder::{ByteOrder, LittleEndian};
 
