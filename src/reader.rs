@@ -4,6 +4,7 @@ use std::io::BufReader;
 use std::io::Read;
 use std::path::PathBuf;
 use crate::lead_in::LeadIn;
+use crate::toc::get_flags;
 
 #[derive(Debug)]
 pub struct Reader {
@@ -31,24 +32,21 @@ impl Reader {
         buf
     }
     pub fn read_lead_in(&mut self) -> LeadIn {
-        let mut lead_in = LeadIn::new();
-
         let mut buf = self.read_next(4);
-        let tag = String::from_utf8_lossy(&buf);
-        lead_in.tag = tag.into_owned();
+        let tag = String::from_utf8_lossy(&buf).to_string();
 
         buf = self.read_next(4);
-        lead_in.toc = LittleEndian::read_i32(&buf);
+        let toc = get_flags(&LittleEndian::read_i32(&buf));
 
         buf = self.read_next(4);
-        lead_in.ver = LittleEndian::read_u32(&buf);
+        let ver = LittleEndian::read_u32(&buf);
 
         buf = self.read_next(8);
-        lead_in.seg = LittleEndian::read_u64(&buf);
+        let seg = LittleEndian::read_u64(&buf);
 
         buf = self.read_next(8);
-        lead_in.raw = LittleEndian::read_u64(&buf);
+        let raw = LittleEndian::read_u64(&buf);
 
-        lead_in
+        LeadIn{tag, toc, ver, seg, raw}
     }
 }

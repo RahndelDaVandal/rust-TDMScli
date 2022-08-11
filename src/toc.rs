@@ -14,65 +14,50 @@
 // | TocBigEndian       | (1L<<6) | All numeric values in the segment are big-endian formatted (if flag is not set, data is little-endian). ToC is always little-endian. |
 // | TocNewObjList      | (1L<<2) | Segment contains new object list (e.g. channels in this segment are not the same channels the previous segment contains)             |
 
+use std::collections::HashMap;
 use std::fmt;
-use std::ops::BitAnd;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum ToC{
-    TocMetaData(i32),
-    TocRawData(i32),
-    TocDAQmxRawData(i32),
-    TocInterleavedData(i32),
-    TocBigEndian(i32),
-    TocNewObjList(i32),
-}
+const TOC_FLAGS:[(Flag, i32); 6] = [
+    (Flag::MetaData, 1 << 1),
+    (Flag::RawData, 1 << 3),
+    (Flag::DAQmxRawData, 1 << 7),
+    (Flag::InterleavedData, 1 << 5),
+    (Flag::BigEndian, 1 << 6),
+    (Flag::NewObjList, 1 << 2),
+];
 
-impl fmt::Display for ToC{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let printable = match *self{
-            ToC::TocMetaData(_) => "TocMetaData",
-            ToC::TocRawData(_) => "TocRawData",
-            ToC::TocDAQmxRawData(_) => "TocDAQmxRawData",
-            ToC::TocInterleavedData(_) => "TocInterleavedData",
-            ToC::TocBigEndian(_) => "TocBigEndian",
-            ToC::TocNewObjList(_) => "TocNewObjList",
-        };
-        write!(f, "{}", printable)
-    }
-}
+pub fn get_flags(mask: &i32) -> Vec<Flag>{
+    let mut flags:Vec<Flag> = Vec::new();
 
-impl BitAnd for ToC{
-    type Output = Self;
-    fn bitand(self, rhs: Self) -> Self::Output {
-        let val = match self{
-            ToC::TocMetaData(_) => 1<<1,
-            ToC::TocRawData(_) => 1<<3,
-            ToC::TocDAQmxRawData(_) => 1<<7,
-            ToC::TocInterleavedData(_) => 1<<5,
-            ToC::TocBigEndian(_) => 1<<6,
-            ToC::TocNewObjList(_) => 1<<2,
-        };
-        Self(val & rhs)
-    }
-}
-
-pub fn demask(mask: i32) -> Vec<ToC>{
-    let mut flags = Vec::new();
-
+    for (k, v) in TOC_FLAGS{
+        if mask & v != 0{
+            flags.push(k);
+        }
+    };
 
     flags
 }
 
-// let toc_hash = HashMap::from([
-//     ("TocMetaData", 1 << 1),
-//     ("TocRawData", 1 << 3),
-//     ("TocDAQmxRawData", 1 << 7),
-//     ("TocInterleavedData", 1 << 5),
-//     ("TocBigEndian", 1 << 6),
-//     ("TocNewObjList", 1 << 2),
-// ]);
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum Flag{
+    MetaData,
+    RawData,
+    DAQmxRawData,
+    InterleavedData,
+    BigEndian,
+    NewObjList,
+}
 
-// let m = LittleEndian::read_i32(&mask);
-// for (k, v) in toc_hash{
-//     println!("{k} ({v:08b} & {:08b} != 0) = {}", &m, (&m & v != 0))
-// }
+impl fmt::Display for Flag{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let printable = match *self{
+            Flag::MetaData => "MetaData",
+            Flag::RawData => "RawData",
+            Flag::DAQmxRawData => "DAQmxRawData",
+            Flag::InterleavedData => "InterleavedData",
+            Flag::BigEndian => "BigEndian",
+            Flag::NewObjList => "NewObjList",
+        };
+        write!(f, "{}", printable)
+    }
+}
