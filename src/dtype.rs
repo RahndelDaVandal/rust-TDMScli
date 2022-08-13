@@ -24,6 +24,7 @@ pub enum Dtype {
 //     - (u64) positive fractions: (2^-64) of a second
 // Boolean values are stored as 1 byte each, where 1 represents TRUE and 0 represents FALSE.
 
+// TODO - Seperate the value and dtype so you can just return a dtype or a value
 pub fn get_val_by_dtype(dtype: u32, value: &[u8]) -> Dtype{
     match dtype{
         0x01 => Dtype::Int8(LittleEndian::read_i16(value) as i8),

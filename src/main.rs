@@ -1,7 +1,6 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 use byteorder::{ByteOrder, LittleEndian};
 use dtype::{get_val_by_dtype, get_dtype_as_string, Dtype};
-use meta_data::{MetaData, Object, Property};
 use reader::Reader;
 use std::collections::HashMap;
 use std::env;
@@ -10,200 +9,153 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use toc::{get_flags, Flag};
 use utils::{default_path, print_type_of, type_of};
+use segment::{Segment, LeadIn, Property, read_lead_in, dbg_lead_in, dbg_format_bytes};
 
 mod dtype;
-mod lead_in;
 mod meta_data;
 mod reader;
 mod toc;
 mod utils;
+mod segment;
+
+const NO_RAW_DATA:u32 = 0xFFFFFFFF;
+const DAQMX_FORMAT_CHANGING_SCALER:u32 = 0x69120000;
+const DAQMX_DIGITAL_LINE_SCALER:u32 = 0x69130000;
 
 fn main() {
     let cmd_args: Vec<String> = env::args().collect();
-    dbg!(&cmd_args);
-
+    // dbg!(&cmd_args);
     let mut file_path = PathBuf::new();
-
     if cmd_args.len() > 1 {
         // TODO - build path from args
     } else {
         file_path = default_path();
     }
-    dbg!(&file_path, &file_path.exists());
+    // dbg!(&file_path, &file_path.exists());
 
     let mut r = Reader::new(file_path);
-    let l1 = r.read_lead_in();
-    dbg!(&l1, &r.location);
+    // r.move_to(99958);
 
-    // Number of Objects
-    let mut buf = r.read_next(4);
-    let num_of_objs = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("num_of_objs: {num_of_objs}");
+    let mut _li = dbg_lead_in(&mut r);
 
-    // Length of first object path
-    buf = r.read_next(4);
-    let len_of_o1_path = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("len_of_o1_path: {len_of_o1_path}");
+    let num_of_objs = r.get_num_objs();
 
-    // First object path
-    buf = r.read_next(len_of_o1_path);
-    let o1_path = String::from_utf8_lossy(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_path: \"{o1_path}\"");
+    for _ in 0..num_of_objs{
+        let path = r.get_path();
+        let raw_data_index = r.get_raw_index();
+        if raw_data_index == NO_RAW_DATA{
+            let num_of_props = r.get_num_of_props();
+            if num_of_props > 0 {
+                for _ in 0..num_of_props{
+                    let prop = r.get_prop();
+                }
+            }
+        } else {
+            let data_dtype = r.get_data_dtype();
+            let data_dimension = r.get_data_dimension();
+            let num_of_data_values = r.get_num_of_data_values();
+            let num_of_props = r.get_num_of_props();
+            if num_of_props > 0 {
+                for _ in 1..num_of_props{
+                    let prop = r.get_prop();
+                }
+            }
+        }
+    };
 
-    // Raw Data index
-    buf = r.read_next(4);
-    let o1_raw_idx = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_raw_idx: {o1_raw_idx}");
+    // let path = r.get_path();
+    // let raw_data_index = r.get_raw_index();
+    // let num_of_props = r.get_num_of_props();
+    // let prop = r.get_prop();
 
-    // Object1 # of Props
-    buf = r.read_next(4);
-    let o1_num_of_props = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_num_of_props: {o1_num_of_props}");
+    // let path = r.get_path();
+    // let raw_data_index = r.get_raw_index();
+    // let num_of_props = r.get_num_of_props();
 
-    // Object1 Prop1 name length
-    buf = r.read_next(4);
-    let o1_p1_len_name = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_p1_len_name: {o1_p1_len_name}");
+    // let path = r.get_path();
+    // let raw_data_index = r.get_raw_index();
+    // let data_dtype = r.get_data_dtype();
+    // let data_dimension = r.get_data_dimension();
+    // let num_of_data_values = r.get_num_of_data_values();
+    // let num_of_props = r.get_num_of_props();
 
-    // Object1 Prop1 name
-    buf = r.read_next(o1_p1_len_name);
-    let o1_p1_name = String::from_utf8_lossy(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_p1_name: {o1_p1_name}");
-
-    // Object1 Prop1 Dtype
-    buf = r.read_next(4);
-    let o1_p1_dtype = get_dtype_as_string(LittleEndian::read_u32(&buf));
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_p1_dtype: {o1_p1_dtype}");
-
-    // Object1 Prop1 Value length
-    buf = r.read_next(4);
-    let o1_p1_val_len = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_p1_val_len: {o1_p1_val_len}");
-
-    // Object2 Prop1 Value
-    buf = r.read_next(o1_p1_val_len);
-    let o2_p1_val = String::from_utf8_lossy(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o2_p1_val: {o2_p1_val}");
-
-    // Object2 Path Length
-    buf = r.read_next(4);
-    let len_of_o2_path = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("len_of_o2_path: {len_of_o2_path}");
-
-    // Object2 path
-    buf = r.read_next(len_of_o2_path);
-    let o2_path = String::from_utf8_lossy(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o2_path: \"{o2_path}\"");
-
-    // Object2 Raw Data index
-    buf = r.read_next(4);
-    let o2_raw_idx = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o2_raw_idx: {o2_raw_idx}");
-
-    // Object2 # of Props
-    buf = r.read_next(4);
-    let o2_num_of_props = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o2_num_of_props: {o2_num_of_props}");
-
-    // Object3 path length
-    buf = r.read_next(4);
-    let len_of_o3_path = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("len_of_o3_path: {len_of_o3_path}");
-
-    // Object3 path
-    buf = r.read_next(len_of_o3_path);
-    let o3_path = String::from_utf8_lossy(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o3_path: \"{o3_path}\"");
-
-    // Object3 Raw Data index
-    buf = r.read_next(4);
-    let o3_raw_idx = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o3_raw_idx: {o3_raw_idx}");
-
-    // Object3 # of Props
-    buf = r.read_next(4);
-    let o3_num_of_props = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o3_num_of_props: {o3_num_of_props}");
-
-    // Object3 Prop1 name length
-    buf = r.read_next(4);
-    let o3_p1_len_name = LittleEndian::read_u32(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o3_p1_len_name: {o3_p1_len_name}");
-
-    // Object3 Prop1 name
-    buf = r.read_next(o3_p1_len_name);
-    let o3_p1_name = String::from_utf8_lossy(&buf);
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_p3_name: {o3_p1_name}");
-
-    // Object3 Prop1 Dtype
-    buf = r.read_next(4);
-    let o3_p1_dtype = get_dtype_as_string(LittleEndian::read_u32(&buf));
-    print!("{:04} : {:02X?} -> ", r.location, buf);
-    println!("o1_p3_dtype: {o3_p1_dtype}");
-
-
+    // let mut i = 0;
+    // loop {
+    //     let chan = read_channel(&mut r, false);
+    //     println!("{} -> \"{}\"", i, chan.path);
+    //     i += 1;
+    //     if chan.num_of_props != 0{break;}
+    // }
 }
 
-fn get_obj(r: &mut Reader) -> Object {
-    let mut buf = r.read_next(4);
-    let len_of_path = LittleEndian::read_u32(&buf);
-    buf = r.read_next(len_of_path);
-    let path = String::from_utf8_lossy(&buf).to_string();
-    buf = r.read_next(4);
-    let raw_index = LittleEndian::read_u32(&buf);
-    buf = r.read_next(4);
-    let num_of_properties = LittleEndian::read_u32(&buf);
+struct Channel{
+    path_len: u32,
+    path: String,
+    len_index_info: u32,
+    data_type: String, // TODO - possibly seperate dtype enum w/ and w/o actual value
+    dimension: u32,
+    num_of_raw_values: u64,
+    num_of_props: u32,
+}
 
-    Object {
-        path,
-        raw_index,
-        num_of_properties,
-        properties: Vec::new(),
+fn read_channel(r: &mut Reader, verbose: bool) -> Channel{
+    // Channel Path Length
+    let b_path_len = r.read_next(4);
+    let path_len = LittleEndian::read_u32(&b_path_len);
+    if path_len > 1000 as u32{
+        panic!("WARNING! - Channel Path Length is greater than 1000! ({path_len})");
     }
-}
+    // Channel Path
+    let b_path = r.read_next(path_len);
+    let path = String::from_utf8_lossy(&b_path).to_string();
+    // Channel Index Info Length
+    let b_len_index_info = r.read_next(4);
+    let len_index_info = LittleEndian::read_u32(&b_len_index_info);
+    // Channel Data Type as String
+    let b_dtype = r.read_next(4);
+    let dtype_u32 = LittleEndian::read_u32(&b_dtype);
+    let data_type = get_dtype_as_string(dtype_u32).to_string();
+    // Data Dimension
+    let b_dimension = r.read_next(4);
+    let dimension = LittleEndian::read_u32(&b_dimension);
+    // NUmber of Raw Data Values
+    let b_num_of_raw_values = r.read_next(8);
+    let num_of_raw_values = LittleEndian::read_u64(&b_num_of_raw_values);
+    // Number of Properties
+    let b_num_of_props = r.read_next(4);
+    let num_of_props = LittleEndian::read_u32(&b_num_of_props);
 
-fn get_prop(r: &mut Reader) -> Property {
-    let buf = r.read_next(4);
-    let len_property_name = LittleEndian::read_u32(&buf);
-    let property_name = r.read_next(len_property_name);
-    let buf = r.read_next(4);
-    let dtype = LittleEndian::read_u32(&buf);
+    if verbose{
+        // Channel Path Length
+        print!("{}", dbg_format_bytes(&b_path_len, &r.location));
+        println!("PATH_LEN: {path_len}\n");
+        // Channel Path
+        print!("{}", dbg_format_bytes(&b_path, &r.location));
+        println!("PATH: \"{path}\"\n");
+        // Channel Index Info Length
+        print!("{}", dbg_format_bytes(&b_len_index_info, &r.location));
+        println!("LEN_INDEX_INFO: {len_index_info}\n");
+        // Channel Data Type as String
+        print!("{}", dbg_format_bytes(&b_dtype, &r.location));
+        println!("DATA_TYPE: {data_type}\n");
+        // Data Dimension
+        print!("{}", dbg_format_bytes(&b_dimension, &r.location));
+        println!("DIMENSION: {dimension}\n");
+        // NUmber of Raw Data Values
+        print!("{}", dbg_format_bytes(&b_num_of_raw_values, &r.location));
+        println!("#_OF_RAW_VALUES: {num_of_raw_values}\n");
+        // Number of Properties
+        print!("{}", dbg_format_bytes(&b_num_of_props, &r.location));
+        println!("#_OF_PROPERTIES: {num_of_props}\n");
+    }
 
-    match dtype {
-        0x20 => {
-            let len_dtype_string = r.read_next(4);
-            let v = r.read_next(LittleEndian::read_u32(&len_dtype_string));
-            Property {
-                name: String::from_utf8_lossy(&property_name).to_string(),
-                value: get_val_by_dtype(dtype, &v),
-            }
-        }
-        _ => {
-            let v = r.read_next(4);
-            Property {
-                name: String::from_utf8_lossy(&property_name).to_string(),
-                value: get_val_by_dtype(dtype, &v),
-            }
-        }
+    Channel{
+        path_len,
+        path,
+        len_index_info,
+        data_type,
+        dimension,
+        num_of_raw_values,
+        num_of_props
     }
 }
