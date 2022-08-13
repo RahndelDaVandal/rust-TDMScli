@@ -16,6 +16,7 @@ pub fn default_path() -> PathBuf {
             cwd.push("data");
             // cwd.push("2020-09-17T22-45-47_.tdms");
             cwd.push("2020-08-14T19-30-06_.tdms");
+            // cwd.push("2020-08-14T19-30-06_.tdms_index");
             path = cwd
         }
         Err(e) => {
