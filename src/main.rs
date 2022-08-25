@@ -1,54 +1,91 @@
-#![allow(dead_code, unused_imports, unused_variables)]
+#![allow(unused_imports)]
+use std::env;
+use std::process;
+use tdms::Config;
+use tdms::leadin::LeadIn;
+use tdms::reader::Reader;
+use tdms::reader;
+use tdms::data;
 use byteorder::{ByteOrder, LittleEndian};
-use dtype::{get_dtype_as_string, get_val_by_dtype, Dtype};
-use reader::Reader;
-use segment::{LeadIn, Property, Segment};
-use std::collections::HashMap;
-use std::{env, fs::File, io::BufReader, path::PathBuf};
-use toc::{get_flags, Flag};
-use utils::{default_path, print_type_of, type_of};
-use crate::reader::dbg_format_bytes;
-
-mod dtype;
-mod meta_data;
-mod reader;
-mod segment;
-mod toc;
-mod utils;
-
-const NO_RAW_DATA: u32 = 0xFFFFFFFF;
-const DAQMX_FORMAT_CHANGING_SCALER: u32 = 0x69120000;
-const DAQMX_DIGITAL_LINE_SCALER: u32 = 0x69130000;
 
 fn main() {
-    let cmd_args: Vec<String> = env::args().collect();
-    // dbg!(&cmd_args);
-    let mut file_path = PathBuf::new();
-    if cmd_args.len() > 1 {
-        // TODO - build path from args
-    } else {
-        file_path = default_path();
+    env_logger::init();
+    let config = Config::build(env::args()).unwrap_or_else(|err| {
+        log::error!("Proplem parsing arguments: {err}");
+        eprintln!("Problem parsing arguments: {err}");
+        process::exit(1);
+    });
+    log::info!("config: {:?}", config);
+
+    let mut r = Reader::new(&config.file_path);
+
+    log::info!(
+        "Created Reader for {:?}",
+        config.file_path
+            .split('/')
+            .filter(|x| x.contains("tdms"))
+            .collect::<String>()
+    );
+
+    println!("{r:?}");
+
+    for i in 0..9 { 
+        for _ in 0..122 { print!("-")}; println!();
+        let li = LeadIn::new(&r.read(28), r.last_pos);
+        println!("li: {li:?}");
+        println!();
+        r.read_meta();
+        println!("\n========> iter {i} <========");
     }
-    // dbg!(&file_path, &file_path.exists());
+    let li = LeadIn::new(&r.read(28), r.last_pos);
+    println!("{:?}", li);
+    r.get_num_of_objs();
 
-    let mut r = Reader::new(file_path);
-
-    let mut segments:Vec<Segment> = Vec::new();
-
-    for _ in 0..10 {
-        segments.push(r.read_segment());
-    }
-
-    println!("\n");
-    for s in segments{
-        if s.lead_in.toc_flags.contains(&Flag::NewObjList){
-            for o in s.objects{
-                println!("{}", o.path);
-                for p in o.properties {
-                    println!("\t{} = {:?}", p.name, p.value);
-                }
+    for _ in 0..25 {
+        #[allow(unused_assignments)]
+        let mut num_of_props = 0;
+        loop {
+            for _ in 0..122 {
+                print!("-");
             }
-            for _ in 0..122 {print!("-");} println!("");
+            println!();
+            for _ in 0..122 {
+                print!("-");
+            }
+            println!("======================> Object <=======================");
+            println!();
+            num_of_props = r.read_obj();
+            if num_of_props != 0{
+                    break;
+                }
+        }
+        println!("====================> Properties <=====================");
+        for _ in 0..num_of_props {
+            r.read_prop();
         }
     }
+
+    println!("======================> Object <=======================");
+    #[allow(unused_variables)]
+    let num_of_props = r.read_obj();
+    println!("====================> Properties <=====================");
+    
+    let name_len = r.read_u32();
+    reader::dbg_bytes(&r.buffer, &r.last_pos);
+    println!("name_len: {name_len}");
+    let name = r.read_string(name_len);
+    reader::dbg_bytes(&r.buffer, &r.last_pos);
+    println!("name: {name}");
+
+    r.read_u32();
+    reader::dbg_bytes(&r.buffer, &r.last_pos);
+    println!();
+    r.read_u32();
+    reader::dbg_bytes(&r.buffer, &r.last_pos);
+    println!("{}", LittleEndian::read_i32(&r.buffer));
+    r.read_u32();
+    reader::dbg_bytes(&r.buffer, &r.last_pos);
+    println!("{}", LittleEndian::read_u32(&r.buffer));
+
+    println!("\n\n\n{:?}", li);
 }

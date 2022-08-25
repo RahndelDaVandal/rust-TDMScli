@@ -14,7 +14,6 @@
 // | TocBigEndian       | (1L<<6) | All numeric values in the segment are big-endian formatted (if flag is not set, data is little-endian). ToC is always little-endian. |
 // | TocNewObjList      | (1L<<2) | Segment contains new object list (e.g. channels in this segment are not the same channels the previous segment contains)             |
 
-use std::collections::HashMap;
 use std::fmt;
 
 const TOC_FLAGS:[(Flag, i32); 6] = [
@@ -25,18 +24,6 @@ const TOC_FLAGS:[(Flag, i32); 6] = [
     (Flag::BigEndian, 1 << 6),
     (Flag::NewObjList, 1 << 2),
 ];
-
-pub fn get_flags(mask: &i32) -> Vec<Flag>{
-    let mut flags:Vec<Flag> = Vec::new();
-
-    for (k, v) in TOC_FLAGS{
-        if mask & v != 0{
-            flags.push(k);
-        }
-    };
-
-    flags
-}
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Flag{
@@ -60,4 +47,16 @@ impl fmt::Display for Flag{
         };
         write!(f, "{}", printable)
     }
+}
+
+pub fn get_flags(mask: &i32) -> Vec<Flag>{
+    let mut flags:Vec<Flag> = Vec::new();
+
+    for (k, v) in TOC_FLAGS{
+        if mask & v != 0{
+            flags.push(k);
+        }
+    };
+
+    flags
 }

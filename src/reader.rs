@@ -1,364 +1,262 @@
-use crate::toc::get_flags;
+use std::{
+    fs::File,
+    io::{
+        BufReader,
+        Read,
+    }
+};
 use byteorder::{ByteOrder, LittleEndian};
-use std::fs::File;
-use std::io::BufReader;
-use std::io::Read;
-use std::path::PathBuf;
-
-use crate::segment::{Segment, LeadIn, Object, Property};
-use crate::dtype::{Dtype, get_dtype_as_string, get_val_by_dtype};
-
-const NO_RAW_DATA:u32 = 0xFFFFFFFF;
-const DAQMX_FORMAT_CHANGING_SCALER:u32 = 0x69120000;
-const DAQMX_DIGITAL_LINE_SCALER:u32 = 0x69130000;
+use crate::data;
+use crate::data::{Type, Value};
 
 #[derive(Debug)]
 pub struct Reader {
+    pub file_len: i64,
     pub reader: BufReader<File>,
     pub buffer: Vec<u8>,
-    pub location: i32,
+    pub last_pos: i64,
+    pub pos: i64,
 }
 
-impl Reader {
-    pub fn new(file_path: PathBuf) -> Self {
-        let file = File::open(file_path).expect("Error opening file");
-        Self {
-            reader: BufReader::new(file),
-            buffer: Vec::new(),
-            location: 0,
+impl Reader{
+    pub fn new(file_path: &String) -> Reader {
+        match File::open(file_path) {
+            Ok(file) => {
+                Reader {
+                    file_len: file.metadata().unwrap().len() as i64,
+                    reader: BufReader::new(file),
+                    buffer: Vec::new(),
+                    last_pos: 0,
+                    pos: 0,
+                }
+            },
+            Err(e) => panic!("Problem creating Reader: {}", e),
         }
     }
-    pub fn read_next(&mut self, num: u32) -> Vec<u8> {
-        let mut buf = vec![0u8; num as usize];
-
+    pub fn read(&mut self, n: i64) -> Vec<u8>{
+        let mut buf = vec![0u8; n as usize];
         match self.reader.read(&mut buf) {
             Ok(_) => {}
             Err(e) => eprintln!("Error: {e}"),
         };
         self.buffer = buf.clone();
-        self.location += num as i32;
-
+        self.last_pos = self.pos;
+        self.pos += n;
         buf
     }
-    pub fn move_to(&mut self, idx: u64) {
+    pub fn read_u32(&mut self) -> u32{
+        self.read(4);
+        LittleEndian::read_u32(&self.buffer)
+    }
+    pub fn read_i32(&mut self) -> i32{
+        self.read(4);
+        LittleEndian::read_i32(&self.buffer)
+    }
+    pub fn read_u64(&mut self) -> u64{
+        self.read(8);
+        LittleEndian::read_u64(&self.buffer)
+    }
+    pub fn read_i64(&mut self) -> i64{
+        self.read(8);
+        LittleEndian::read_i64(&self.buffer)
+    }
+    pub fn read_string(&mut self, len: u32) -> String {
+        self.read(len as i64);
+        String::from_utf8_lossy(&self.buffer).to_string()
+    }
+    pub fn read_dvalue(&mut self, dtype: data::Type, str_len: Option<u32>) -> data::Value {
+        match dtype {
+            data::Type::Uint8 => {
+                Value::get(dtype, &self.read(1))
+            },
+            data::Type::Int8 => {
+                Value::get(dtype, &self.read(1))
+            },
+            data::Type::Uint16 => {
+                Value::get(dtype, &self.read(2))
+            },
+            data::Type::Int16 => {
+                Value::get(dtype, &self.read(2))
+            },
+            data::Type::Uint32 => {
+                Value::get(dtype, &self.read(4))
+            },
+            data::Type::Int32 => {
+                Value::get(dtype, &self.read(4))
+            },
+            data::Type::Uint64 => {
+                Value::get(dtype, &self.read(8))
+            },
+            data::Type::Int64 => {
+                Value::get(dtype, &self.read(8))
+            },
+            data::Type::Float => {
+                Value::get(dtype, &self.read(4))
+            },
+            data::Type::Double => {
+                Value::get(dtype, &self.read(8))
+            },
+            data::Type::String => {
+                match str_len {
+                    Some(l) => {
+                        Value::get(dtype, &self.read(l as i64))
+                    },
+                    None => {
+                        panic!(
+                            "reader::Reader::read_dvalue Error: no string length provided."
+                        );
+                    }
+                }
+            },
+            data::Type::Boolean => {
+                Value::get(dtype, &self.read(1))
+            },
+            data::Type::TimeStamp => {
+                Value::get(dtype, &self.read(16))
+            },
+            _ => {
+                log::error!("unexpected data::Type: {dtype}");
+                panic!("reader::Reader::read_dvalue Error: unexpected data::Type");
+            },
+        }
+    }
+    pub fn seek(&mut self, idx: i64) {
         match self.reader.seek_relative(idx as i64) {
-            Ok(_) => self.location += idx as i32,
+            Ok(_) => {
+                self.last_pos = self.pos;
+                self.pos += idx as i64
+            },
             Err(e) => eprintln!("Error: {e}"),
         }
     }
+    pub fn rewind(&mut self){
+        self.seek(- &self.pos);
+    }
+    pub fn get_segment_positions(&mut self) -> Vec<i64> {
+        let mut segment_positions:Vec<i64> = Vec::new();
 
-    pub fn read_segment(&mut self) -> Segment{
-        // Position
-        let position = self.location;
-        for _ in 0..122{print!("=");} println!("");
-        println!("SEGMENT AT POSITION {position}");
-        for _ in 0..122{print!("-");} println!("");
-
-        // LeadIn
-        let lead_in = self.get_lead_in();
-        for _ in 0..122{print!("-");} println!("");
-
-        // num_of_objs
-        let num_of_objs = self.get_num_objs();
-        for _ in 0..122{print!("-");} println!("");
-
-        let mut objects:Vec<Object> = Vec::new();
-        for i in 0..num_of_objs{
-            let obj = self.get_obj();
-            objects.push(obj);
-            if i != num_of_objs - 1{
-                for _ in 0..122{print!("-");} println!("");
-            }
+        while self.pos < self.file_len{
+            segment_positions.push(self.pos);
+            self.seek(12);
+            let next_segment_offset =  self.read_u64();
+            self.seek(next_segment_offset as i64 + 8);
         }
 
-        Segment {
-            position,
-            lead_in,
-            num_of_objs,
-            objects,
-        }
+        segment_positions
     }
+    pub fn get_num_of_objs(&mut self) -> u32 {
+        let dbg = |b:&Vec<u8>, p:&i64| { if b.len() > 0{ dbg_bytes(b, p); } };
 
-    pub fn get_lead_in(&mut self) -> LeadIn{
-        let tag = String::from_utf8_lossy(&self.read_next(4)).to_string();
-        print!("{}", self.bytes_formatter());
-        println!("TAG: \"{tag}\"");
+        let num_of_objs = self.read_u32();
+        dbg(&self.buffer, &self.last_pos);
+        println!("num_of_objs: {num_of_objs}");
 
-        let toc_mask = LittleEndian::read_i32(&self.read_next(4));
-        let toc_flags = get_flags(&toc_mask);
-        print!("{}", self.bytes_formatter());
-        print!("TOC_FLAGS: [ ");
-        for f in &toc_flags{
-            print!("{} ", f);
-        }
-        println!("]");
-
-        let version = LittleEndian::read_u32(&self.read_next(4));
-        print!("{}", self.bytes_formatter());
-        println!("VERSION: {version}");
-
-        let next_segment_offset = LittleEndian::read_u64(&self.read_next(8));
-        print!("{}", self.bytes_formatter());
-        println!("NEXT_SEGMENT_OFFSET: {next_segment_offset}");
-        
-        let raw_data_offset = LittleEndian::read_u64(&self.read_next(8));
-        print!("{}", self.bytes_formatter());
-        println!("RAW_DATA_OFFSET: {raw_data_offset}");
-
-        LeadIn {
-            tag,
-            toc_flags,
-            version,
-            next_segment_offset,
-            raw_data_offset,
-        }
+        num_of_objs
     }
-
-    pub fn get_obj(&mut self) -> Object{
-        let mut properties:Vec<Property> = Vec::new();
-
-        let path = self.get_path();
-        let data_index = self.get_raw_index();
-
-        match data_index {
-            NO_RAW_DATA => {
-                let num_of_properties = self.get_num_of_props();
-                if num_of_properties > 0 {
-                    for _ in 0..num_of_properties{
-                        let prop = self.get_prop();
-                        properties.push(prop);
-                    }
-                }
-                return Object {
-                    path,
-                    data_index,
-                    data_dtype: None,
-                    data_dimension: None,
-                    num_of_data_values: None,
-                    num_of_properties,
-                    properties,
-                };
-            },
-            // TODO -
-            DAQMX_FORMAT_CHANGING_SCALER => {
-                // TODO - Work out logic
-                panic!("NOT IMPLIMENTED: data_index == DAQMX_FORMAT_CHANGING_SCALER");
-            },
-            DAQMX_DIGITAL_LINE_SCALER => {
-                // TODO - Work out logic
-                panic!("NOT IMPLIMENTED: data_index == DAQMX_DIGITAL_LINE_SCALER");
-            },
-            0x0000000 => {
-                // TODO - Work out logic
-                // data_index is same as previous object
-                panic!("NOT IMPLIMENTED: data_index == 0x0000000");
-            }
-            _ => {
-                let data_dtype = self.get_data_dtype();
-                let data_dimension = self.get_data_dimension();
-                let num_of_data_values = self.get_num_of_data_values();
-                let num_of_properties = self.get_num_of_props();
-                if num_of_properties > 0 {
-                    for _ in 0..num_of_properties{
-                        let prop = self.get_prop();
-                        properties.push(prop);
-                    }
-                }
-                return Object {
-                    path,
-                    data_index,
-                    data_dtype: Some(data_dtype),
-                    data_dimension: Some(data_dimension),
-                    num_of_data_values: Some(num_of_data_values),
-                    num_of_properties,
-                    properties,
-                };
-            },
-        }
-    }
-
-    pub fn get_num_objs(&mut self) -> u32{
-        let num_of_objs = LittleEndian::read_u32(&self.read_next(4));
-
-        print!("{}", self.bytes_formatter());
-        println!("#_OF_OBJECTS: {num_of_objs}");
-
-        return num_of_objs;
-    }
-    pub fn get_path(&mut self) -> String {
-        let path_len = LittleEndian::read_u32(&self.read_next(4));
-        if path_len > 1000 as u32 {
-            panic!("WARNING! - Path Length is greater than 1000! ({path_len})");
-        }
-        let path = String::from_utf8_lossy(&self.read_next(path_len)).to_string();
-
-        print!("{}", self.bytes_formatter());
-        println!("PATH: \"{path}\"");
-
-        return path;
-    }
-    pub fn get_raw_index(&mut self) -> u32{
-        let raw_data_index = LittleEndian::read_u32(&self.read_next(4));
-
-        print!("{}", self.bytes_formatter());
-
-        match raw_data_index{
-            NO_RAW_DATA => {
-                println!("RAW_DATA_INDEX: NONE");
-            },
-            DAQMX_FORMAT_CHANGING_SCALER => {
-                // TODO - WORK OUT LOGIC
-                println!("RAW_DATA_INDEX: {raw_data_index}");
-            },
-            DAQMX_DIGITAL_LINE_SCALER => {
-                // TODO - WORK OUT LOGIC
-                println!("RAW_DATA_INDEX: {raw_data_index}");
-            },
-            0x0000000 => {
-                // INDEX MATCHES PERVOUS OBJECT RAW_DATA_INDEX
-                // TODO - WORK OUT LOGIC
-                println!("RAW_DATA_INDEX: {raw_data_index}");
-            },
-            _ => {
-                println!("RAW_DATA_INDEX: {raw_data_index}");
-            },
-        }
-        return raw_data_index;
-    }
-    pub fn get_num_of_props(&mut self) -> u32{
-        let num_of_props = LittleEndian::read_u32(&self.read_next(4));
-
-        print!("{}", self.bytes_formatter());
-        println!("#_OF_PROPS: {num_of_props}\n");
-
-        return num_of_props;
-    }
-    pub fn get_prop(&mut self) -> Property{
-        let name_len = LittleEndian::read_u32(&self.read_next(4));
-        print!("{}", self.bytes_formatter());
-        println!("PROP_NAME_LEN: {name_len}");
-
-        let name = if name_len <= 0{
-            // panic!("ERROR!: reader.Reader.get_prop.name_len <= 0 ({})", name_len);
-            "DBG_PROP_NAME_LEN_EQ_0".to_string()
-        } else if name_len < 1000 && name_len > 0{
-            String::from_utf8_lossy(&self.read_next(name_len)).to_string()
-        } else{
-            panic!("ERROR!: reader.Reader.get_prop.name_len > 1000 ({})", name_len);
-        };
-
-        // let name = String::from_utf8_lossy(&self.read_next(name_len)).to_string();
-
-        print!("{}", self.bytes_formatter());
-        println!("PROP_NAME: {name}");
-
-        let dtype_u32 = LittleEndian::read_u32(&self.read_next(4));
-        let dtype_str = get_dtype_as_string(dtype_u32);
-        print!("{}", self.bytes_formatter());
-        println!("PROP_DTYPE: {dtype_str}");
-
-        match dtype_u32{
-            0x20 => {
-                let prop_value_len = LittleEndian::read_u32(&self.read_next(4));
-                print!("{}", self.bytes_formatter());
-                println!("PROP_VALUE_LEN: {prop_value_len}");
-                let mut value = Dtype::String("".to_string());
-
-                if prop_value_len > 0 {
-                    value = get_val_by_dtype(dtype_u32, &self.read_next(prop_value_len));
-                } 
-                
-                print!("{}", self.bytes_formatter());
-                println!("PROP_Value: {value:?}\n");
-
-                Property{
-                    name,
-                    dtype: dtype_str,
-                    value,
-                }
-            },
-            _ => {
-                let value = get_val_by_dtype(dtype_u32, &self.read_next(4));
-                print!("{}", self.bytes_formatter());
-                println!("PROP_Value: {value:?}\n");
-
-                Property{
-                    name,
-                    dtype: dtype_str,
-                    value,
-                }
-            },
-        }
-    }
-    pub fn get_data_dtype(&mut self) -> String{
-        let dtype_u32 = LittleEndian::read_u32(&self.read_next(4));
-        let dtype_str = get_dtype_as_string(dtype_u32);
-        print!("{}", self.bytes_formatter());
-        println!("DATA_DTYPE: {dtype_str}");
-        return dtype_str;
-    }
-    pub fn get_data_dimension(&mut self) -> u32{
-        let dimension = LittleEndian::read_u32(&self.read_next(4));
-        print!("{}", self.bytes_formatter());
-        println!("DATA_DIMENSION: {dimension}");
-        return dimension;
-    }
-    pub fn get_num_of_data_values(&mut self) -> u64{
-        let num_of_data_values = LittleEndian::read_u64(&self.read_next(8));
-        print!("{}", self.bytes_formatter());
-        println!("NUM_OF_DATA_VALUES: {num_of_data_values}");
-        return num_of_data_values;
-    }
-
-    fn bytes_formatter(&self) -> String{
-        let mut output = String::new();
-        let dst = self.buffer.chunks(4);
-        let pos = self.location;
-        let pos_str = format!("{pos:06}: ");
-        output.push_str(&pos_str);
-        let mut indent = false;
-        let mut line_count = 0;
-        let lines = dst.len() - 1;
-        for i in dst {
-            if indent {
-                for _ in 0..pos_str.len() {
-                    output.push_str(" ");
-                }
-            }
-            indent = true;
-            output.push_str("[ ");
-            for v in i {
-                output.push_str(format!("{:02X} ", v).as_str());
-            }
-            if i.len() < 4 {
-                let n = 4 - i.len();
-                for _ in 0..n {
-                    output.push_str("   ");
-                }
-            }
-            if line_count == lines {
-                output.push_str("] -> ");
+    pub fn read_obj(&mut self) -> u32 {
+        let fmt_len_data_index = |x:u32| {
+            if x == 0xFFFFFFFF {
+                "None".to_string()
             } else {
-                output.push_str("]\n");
+                x.to_string()
             }
-            line_count += 1;
+        };
+        let dbg = |b:&Vec<u8>, p:&i64| { if b.len() > 0{ dbg_bytes(b, p); } };
+
+        let path_len = self.read_u32();
+        dbg(&self.buffer, &self.last_pos);
+        println!("path_len: {path_len}");
+        let path = self.read_string(path_len);
+        dbg(&self.buffer, &self.last_pos);
+        println!("path: \"{path}\"");
+        let len_data_index = self.read_u32();
+        dbg(&self.buffer, &self.last_pos);
+
+        match len_data_index {
+            crate::NO_RAW_DATA => {
+                println!("len_data_index: {}", fmt_len_data_index(len_data_index));
+            },
+            _ => {
+                println!("len_data_index: {}", fmt_len_data_index(len_data_index));
+                let dtype = data::Type::get(self.read_u32());
+                dbg(&self.buffer, &self.last_pos);
+                println!("dtype: {}", dtype);
+                let dimension = self.read_u32();
+                dbg(&self.buffer, &self.last_pos);
+                println!("dimension: {dimension}");
+                let num_of_values = self.read_u64();
+                dbg(&self.buffer, &self.last_pos);
+                println!("num_of_values: {num_of_values}");
+                match dtype {
+                    Type::String => {
+                        let size_of_values = self.read_u64();
+                        dbg(&self.buffer, &self.last_pos);
+                        println!("size_of_values: {size_of_values}");
+                    },
+                    _ => {},
+                }
+            }
         }
-        output
+
+        let num_of_props = self.read_u32();
+        dbg(&self.buffer, &self.last_pos);
+        println!("num_of_props: {num_of_props}\n");
+        num_of_props
+    }
+    pub fn read_prop(&mut self) {
+        let dbg = |b:&Vec<u8>, p:&i64| { if b.len() > 0{ dbg_bytes(b, p); } };
+
+        let name_len = self.read_u32();
+        dbg(&self.buffer, &self.last_pos);
+        println!("name_len: {name_len}");
+        if name_len < 1 { return; }
+        let name = self.read_string(name_len);
+        dbg(&self.buffer, &self.last_pos);
+        println!("name: \"{name}\"");
+        let dtype = data::Type::get(self.read_u32());
+        dbg(&self.buffer, &self.last_pos);
+        println!("dtype: {dtype}");
+        match dtype {
+            Type::String => {
+                let str_len = self.read_u32();
+                dbg(&self.buffer, &self.last_pos);
+                println!("str_len: {str_len}");
+                let value = self.read_dvalue(dtype, Some(str_len));
+                dbg(&self.buffer, &self.last_pos);
+                println!("value: {value:?}");
+            },
+            _ => {
+                let value = self.read_dvalue(dtype, None);
+                dbg(&self.buffer, &self.last_pos);
+                println!("value: {value:?}");
+            },
+        }
+    }
+    pub fn read_meta(&mut self) {
+        let num_of_objs = self.get_num_of_objs();
+
+        for _ in 0..num_of_objs {
+            let num_of_props = self.read_obj();
+
+            for _ in 0..num_of_props {
+                self.read_prop();
+            }
+            println!();
+        }
     }
 }
 
-pub fn dbg_format_bytes(src: &Vec<u8>, pos: &i32) -> String {
+pub fn dbg_bytes(src: &[u8], pos: &i64) {
     let mut output = String::new();
     let dst = src.chunks(4);
     let pos_str = format!("{pos:06}: ");
     output.push_str(&pos_str);
     let mut indent = false;
-    let mut line_count = 0;
     let lines = dst.len() - 1;
-    for i in dst {
+    for (line_count, i) in dst.enumerate(){
         if indent {
             for _ in 0..pos_str.len() {
-                output.push_str(" ");
+                output.push(' ');
             }
         }
         indent = true;
@@ -377,7 +275,6 @@ pub fn dbg_format_bytes(src: &Vec<u8>, pos: &i32) -> String {
         } else {
             output.push_str("]\n");
         }
-        line_count += 1;
     }
-    output
+    print!("{}", output);
 }
