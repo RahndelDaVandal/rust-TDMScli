@@ -1,3 +1,10 @@
+use std::fs::File;
+use std::io::{
+    Read,
+    Seek,
+    SeekFrom,
+};
+
 pub mod data;
 pub mod leadin;
 pub mod object;
@@ -22,6 +29,59 @@ impl Config {
         };
         Ok(Config { file_path })
     }
+}
+
+#[derive(Debug)]
+pub struct Location{
+    pub start: u64,
+    pub end: u64,
+    pub length: u64,
+}
+impl Location{
+    pub fn new(start: u64, end: u64) -> Self {
+        let length = end - start;
+        let location = Location { start, end, length };
+        log::debug!("Location: {:?}", location);
+        location
+    }
+}
+
+pub fn open_file(file_path: String) -> File {
+    match File::open(&file_path) {
+        Ok(file) => {file},
+        Err(e) => panic!("Error reading {file_path}: {e}"),
+    }
+}
+
+pub fn get_bytes(file_path: &String, loc: u64, num: usize) -> Vec<u8>{
+    log::debug!("get_bytes args: loc: {loc}, num: {num}, file_path: {file_path}");
+    let mut f = open_file(file_path.to_string());
+    let file_metadata = f.metadata().expect("Error getting file metadata");
+    let file_len = file_metadata.len();
+    if loc >= file_len {return vec!();}
+    let mut buffer = vec![0u8; num];
+    match f.seek(SeekFrom::Start(loc)) {
+        Ok(new_pos) => {
+            log::debug!("Seeked from 0 to {}", new_pos);
+            match f.read(&mut buffer) {
+                Ok(num_read) => {
+                    log::debug!("Read {num_read} bytes to buffer");
+                    if num_read != num{
+                        log::warn!("tdms::get_bytes Read: {num_read} Wanted {num}");
+                    }
+                },
+                Err(e) => {
+                    log::error!("tdms::get_bytes Read Error: {e}");
+                    panic!("tdms::get_bytes Read Error: {e}");
+                }
+            }
+        },
+        Err(e) => {
+            log::error!("tdms::get_bytes Seek Error: {e}");
+            panic!("tdms::get_bytes Seek Error: {e}");
+        }
+    }
+    buffer
 }
 
 pub fn dbg_format_bytes(src: &[u8], pos: &i64) -> String {
