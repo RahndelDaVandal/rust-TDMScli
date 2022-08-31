@@ -5,7 +5,7 @@ use crate::toc::{Flag, get_flags};
 
 #[derive(Debug)]
 pub struct LeadIn{
-    pub position: i64,
+    pub position: u64,
     pub tag: String,
     pub toc_flags: Vec<Flag>,
     pub version: u32,
@@ -13,7 +13,7 @@ pub struct LeadIn{
     pub raw_data_offset: u64,
 }
 impl LeadIn {
-    pub fn new(buffer: &[u8], position: i64) -> LeadIn {
+    pub fn new(buffer: &[u8], position: u64) -> LeadIn {
         let li = LeadIn {
             position,
             tag: String::from_utf8_lossy(&buffer[0..4]).to_string(),

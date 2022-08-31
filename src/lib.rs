@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::fmt;
 use std::io::{
     Read,
     Seek,
@@ -41,8 +42,12 @@ impl Location{
     pub fn new(start: u64, end: u64) -> Self {
         let length = end - start;
         let location = Location { start, end, length };
-        log::debug!("Location: {:?}", location);
         location
+    }
+}
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Location: {{ Start: {}, End: {}, Length: {} }}", self.start, self.end, self.length)
     }
 }
 
@@ -53,66 +58,48 @@ pub fn open_file(file_path: String) -> File {
     }
 }
 
-pub fn get_bytes(file_path: &String, loc: u64, num: usize) -> Vec<u8>{
-    log::debug!("get_bytes args: loc: {loc}, num: {num}, file_path: {file_path}");
+pub fn find_segments(file_path: &String) -> Vec<Location> {
     let mut f = open_file(file_path.to_string());
-    let file_metadata = f.metadata().expect("Error getting file metadata");
-    let file_len = file_metadata.len();
-    if loc >= file_len {return vec!();}
-    let mut buffer = vec![0u8; num];
-    match f.seek(SeekFrom::Start(loc)) {
-        Ok(new_pos) => {
-            log::debug!("Seeked from 0 to {}", new_pos);
-            match f.read(&mut buffer) {
-                Ok(num_read) => {
-                    log::debug!("Read {num_read} bytes to buffer");
-                    if num_read != num{
-                        log::warn!("tdms::get_bytes Read: {num_read} Wanted {num}");
-                    }
-                },
-                Err(e) => {
-                    log::error!("tdms::get_bytes Read Error: {e}");
-                    panic!("tdms::get_bytes Read Error: {e}");
-                }
-            }
-        },
-        Err(e) => {
-            log::error!("tdms::get_bytes Seek Error: {e}");
-            panic!("tdms::get_bytes Seek Error: {e}");
-        }
-    }
-    buffer
-}
+    let f_len = f.metadata().unwrap().len();
+    let mut segments: Vec<Location> = Vec::new();
+    let mut buf: [u8;28] = [0u8;28];
 
-pub fn dbg_format_bytes(src: &[u8], pos: &i64) -> String {
-    let mut output = String::new();
-    let dst = src.chunks(4);
-    let pos_str = format!("{pos:06}: ");
-    output.push_str(&pos_str);
-    let mut indent = false;
-    let lines = dst.len() - 1;
-    for (line_count, i) in dst.enumerate(){
-        if indent {
-            for _ in 0..pos_str.len() {
-                output.push(' ');
+    let mut loc = 0;
+    while loc < f_len {
+        match f.seek(SeekFrom::Start(loc)) {
+            Ok(new_loc) => {
+                log::debug!("Seeked to {}", new_loc);
+                match f.read(&mut buf) {
+                Ok(num_bytes_read) => {
+                        log::debug!("Read {} bytes to buf", num_bytes_read);
+                        let li = leadin::LeadIn::new(&buf, loc);
+                        // Validate LeadIn
+                        // if li.tag != "TDSm".to_string() || li.tag != "TDSh".to_string() {
+                        //     let err_string = format!("LeadIn parse Error. Want: 'TDSm' or 'TDSh' Got: {}", li.tag);
+                        //     log::error!("{}\n{}", err_string, li);
+                        //     panic!("{}", err_string);
+                        // }
+                        // Maybe save LeadIn to Vec so you only read LeadIns once?
+                        let location = Location::new(li.position, li.position + li.next_segment_offset + 28);
+                        log::debug!("{}", location);
+                        loc = location.end;
+                        log::debug!("New `loc` = {}", loc);
+                        segments.push(location);
+                        log::debug!("segments.len() = {}", segments.len());
+                    },
+                Err(e) => {
+                        let err_string = format!("File Byte Read Error: {e}");
+                        log::error!("{}", err_string);
+                        panic!("{}", err_string);
+                    }
+                }
+            },
+            Err(e) => {
+                let err_string = format!("File Seek Error (loc: {}): {}", loc, e);
+                log::error!("{}", err_string);
+                panic!("{}", err_string);
             }
-        }
-        indent = true;
-        output.push_str("[ ");
-        for v in i {
-            output.push_str(format!("{:02X} ", v).as_str());
-        }
-        if i.len() < 4 {
-            let n = 4 - i.len();
-            for _ in 0..n {
-                output.push_str("   ");
-            }
-        }
-        if line_count == lines {
-            output.push_str("] -> ");
-        } else {
-            output.push_str("]\n");
         }
     }
-    output
+    segments
 }
